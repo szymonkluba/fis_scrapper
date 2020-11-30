@@ -120,28 +120,15 @@ def int_or_empty(value):
         return value
 
 
-def bib_and_jumps_exists():
-    bib = tree.xpath('//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div[2]/text()')
-    jump = tree.xpath('//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div[7]/text()')
-    if not bib:
-        bib = tree.xpath('//*[@id="ajx_results"]/section/div/div/div/div/div[1]/div/div/div/div/div[2]/text()')
-    if not jump:
-        jump = tree.xpath('//*[@id="ajx_results"]/section/div/div/div/div/div[1]/div/div/div/div/div[7]/text()')
-    if "Bib" in bib[0] and "Jump" in jump[0]:
-        return True
-    return False
-
-
 def save_to_file(filename, no):
     try:
         with open(filename, 'x') as file:
             file.writelines(lines)
             print(f"Zapisano w: {filename}")
     except FileExistsError:
-        print('File exists - passing')
-        # no += 1
-        # filename = f'files/{date.strftime("%Y-%m-%d")}_{tournament}_{country}_{hill_size}_{no}.csv'
-        # save_to_file(filename, no)
+        no += 1
+        filename = f'files/{date.strftime("%Y-%m-%d")}_{tournament}_{country}_{hill_size}_{no}.csv'
+        save_to_file(filename, no)
 
 
 def generate_dictionary_of_columns(columns, tree, path_pref, path_affx, ):
