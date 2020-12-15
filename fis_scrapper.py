@@ -1,6 +1,9 @@
 from lxml import html
 import requests
-from datetime import datetime
+
+from jump import Jump
+from participant import Participant
+from race import Race
 
 ABR_TOURNAMENTS = {
     "Olympic Winter Games": "OWG",
@@ -104,31 +107,31 @@ def value_from_empty_node(node):
 
 def float_or_empty(value):
     if value == "":
-        return ""
+        return None
     try:
         return float(value.replace(',', '.'))
     except ValueError:
-        return value
+        return float(input(f"Problem with value: {value}, you may input correct one: "))
 
 
 def int_or_empty(value):
-    if value == '':
-        return ''
+    if value == "":
+        return None
     try:
         return int(value)
     except ValueError:
-        return value
+        return int(input(f"Problem with value: {value}, you may input correct one: "))
 
 
-def save_to_file(filename, no):
-    try:
-        with open(filename, 'x') as file:
-            file.writelines(lines)
-            print(f"Zapisano w: {filename}")
-    except FileExistsError:
-        no += 1
-        filename = f'files/{date.strftime("%Y-%m-%d")}_{tournament}_{country}_{hill_size}_{no}.csv'
-        save_to_file(filename, no)
+# def save_to_file(filename, no):
+#     try:
+#         with open(filename, 'x') as file:
+#             file.writelines(lines)
+#             print(f"Zapisano w: {filename}")
+#     except FileExistsError:
+#         no += 1
+#         filename = f'files/{date.strftime("%Y-%m-%d")}_{tournament}_{country}_{hill_size}_{no}.csv'
+#         save_to_file(filename, no)
 
 
 def generate_dictionary_of_columns(columns, tree, path_pref, path_affx, ):
@@ -157,8 +160,8 @@ def fill_columns(columns, tree, path_pref, path_affx, disqualified):
         else:
             temp_list = tree.xpath(path_pref + str(columns[k]) + path_affx)
         for i in range(len(temp_list)):
-            if k == "Athlete":
-                temp_list[i] = float_or_empty(value_from_empty_node(temp_list[i])).replace('\n', '').strip()
+            if k == "Athlete" or k == "Nation":
+                temp_list[i] = value_from_empty_node(temp_list[i]).replace('\n', '').strip()
             elif k == "Rank" or k == "Bib" or k == "FIS code" or k == "Year":
                 temp_list[i] = int_or_empty(value_from_empty_node(temp_list[i]))
             else:
@@ -179,58 +182,127 @@ def generate_lines(dictionary, lines):
         lines.append(line)
 
 
-for i in range(3265, 6000):
-    print(f'Aktualne id: {i}')
-    lines = []
-    columns = dict()
-    disqualified = dict()
-    raceid = str(i)
-    path = 'https://www.fis-ski.com/DB/general/results.html?sectorcode=JP&raceid=' + raceid
-    page = requests.get(path)
-    tree = html.fromstring(page.content)
-
-    if check_if_empty(tree) or check_if_error(tree):
-        print('Nothing to get:(')
-    else:
-        if check_woman(tree):
-            print('Woman competition - passing')
-        elif check_children(tree):
-            print('Children competition - passing')
-        elif check_team(tree):
-            print('Team competition - passing')
-        else:
-            country = tree.xpath('//*[@class="event-header__name heading_off-sm-style"]/h1/text()')
-            tournament = tree.xpath('//*[@class="event-header__subtitle"]/text()')
-            tournament = tournament[0].replace('\n', '').strip()
-            tournament = ABR_TOURNAMENTS[tournament]
-            date = tree.xpath('//*[@class="date__full"]/text()')
-            date = datetime.strptime(date[0], '%B %d, %Y')
-            hill_size = tree.xpath('//*[@class="event-header__kind"]/text()')
-            hill_size = hill_size[0].split()[-1]
-            country = country[0].replace(" ", "_").replace("(", "").replace(")", "").replace('/', '_')
-            filename = f'files/{date.strftime("%Y-%m-%d")}_{tournament}_{country}_{hill_size}.csv'
-            rank = tree.xpath('//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div[1]/text()')
-            if rank:
-                path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div['
-                path_affx = ']/text()'
-                columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
-                disqualified = columns.copy()
-                path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
-                path_affx = ']/.'
-                columns = fill_columns(columns, tree, path_pref, path_affx, False)
+def generate_participants(dictionary: dict, race: Race, disqualified=False):
+    for i in range(len(dictionary['Athlete'])):
+        for k, v in dictionary.items():
+            if k == "Rank":
+                participant = Participant(v[i])
+            elif "Jump" in k:
+                jump = Jump(v[i])
+            elif "Round" in k:
+                jump.set_points(v[i])
             else:
-                path_pref = '//*[@id="ajx_results"]/section/div/div/div/div/div[1]/div/div/div/div/div['
-                path_affx = ']/text()'
-                columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
-                disqualified = columns.copy()
-                path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
-                path_affx = ']/.'
-                columns = fill_columns(columns, tree, path_pref, path_affx, False)
-            generate_lines(columns, lines)
-            if disqualified_exists(tree):
-                path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a/div/div/div['
-                path_affx = ']/.'
-                fill_columns(disqualified, tree, path_pref, path_affx, disqualified_exists(tree))
-                lines.append('disqualified\n')
-                generate_lines(disqualified, lines)
-            save_to_file(filename, 0)
+                participant_fields(k, v[i], participant)
+        if disqualified:
+            race.add_disqualified(participant)
+        else:
+            race.add_participant(participant)
+
+
+def participant_fields(key, value, participant: Participant):
+    return {
+        "Bib": participant.set_bib(value),
+        "FIS code": participant.set_fis_code(value),
+        "Athlete": participant.set_name(value),
+        "Year": participant.set_year_born(value),
+        "Nation": participant.set_nation(value),
+        "Tot. Points": participant.set_total_points(value),
+        "Diff. Points": participant.set_points_diff(value)
+    }.get(key)
+
+
+def mode_prompts(mode):
+    return {
+        "1": "Enter FIS ID of race: ",
+        "2": "Enter FIS IDs of races, separated by spaces (ex. 1111 2222 3333): ",
+        "3": "Enter range of FIS IDs, separated by \"-\" (ex. 1111-2222: "
+    }.get(mode)
+
+
+def scrap_races(lookup_range, races: list):
+    for i in lookup_range:
+        print(f'Current FIS ID: {i}')
+        lines = []
+        columns = dict()
+        raceid = str(i)
+        path = 'https://www.fis-ski.com/DB/general/results.html?sectorcode=JP&raceid=' + raceid
+        page = requests.get(path)
+        tree = html.fromstring(page.content)
+
+        if check_if_empty(tree) or check_if_error(tree):
+            print('Nothing to get:(')
+        else:
+            if check_woman(tree):
+                print('Woman competition - passing')
+            elif check_children(tree):
+                print('Children competition - passing')
+            elif check_team(tree):
+                print('Team competition - passing')
+            else:
+                race = Race(
+                    fis_id=i,
+                    place=tree.xpath('//*[@class="event-header__name heading_off-sm-style"]/h1/text()')[0],
+                    subtitle=tree.xpath('//*[@class="event-header__subtitle"]/text()')[0].strip(),
+                    kind=tree.xpath('//*[@class="event-header__kind"]/text()')[0],
+                    date_starts=tree.xpath('//*[@class="date__full"]/text()')[0],
+                    time_starts=tree.xpath('//*[@class="time__value"]/text()')[0],
+                            )
+                rank = tree.xpath('//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div[1]/text()')
+                if rank:
+                    path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div['
+                    path_affx = ']/text()'
+                    columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
+                    disqualified = columns.copy()
+                    path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
+                    path_affx = ']/.'
+                    columns = fill_columns(columns, tree, path_pref, path_affx, False)
+                else:
+                    path_pref = '//*[@id="ajx_results"]/section/div/div/div/div/div[1]/div/div/div/div/div['
+                    path_affx = ']/text()'
+                    columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
+                    disqualified = columns.copy()
+                    path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
+                    path_affx = ']/.'
+                    columns = fill_columns(columns, tree, path_pref, path_affx, False)
+                generate_participants(columns, race)
+                if disqualified_exists(tree):
+                    path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a/div/div/div['
+                    path_affx = ']/.'
+                    fill_columns(disqualified, tree, path_pref, path_affx, disqualified_exists(tree))
+                    lines.append('disqualified\n')
+                    generate_participants(disqualified, race, disqualified=True)
+                races.append(race)
+    return races
+
+
+if __name__ == "__main__":
+    while True:
+        races = []
+        mode = input("Choose scraping for:\n 1 - single race, 2 - selected races, 3 - range of races, q - quit: ")
+        if mode not in "123q":
+            print("Unknown mode")
+            continue
+        elif mode == "q":
+            break
+        else:
+            lookup_range = input(mode_prompts(mode))
+            if "-" in lookup_range:
+                lookup_range = list(map(int, lookup_range.split("-")))
+                lookup_range = range(lookup_range[0], lookup_range[1] + 1)
+                races = scrap_races(lookup_range, races)
+            else:
+                lookup_range = lookup_range.split()
+                races = scrap_races(lookup_range, races)
+            while True:
+                print("What next?")
+                next_operation = input("l - list races, s - save to file, x - exit: ")
+                if next_operation == "l":
+                    for i, race in enumerate(races):
+                        print(f"{i+1}. {race.fis_id} {race.place} {race.date_starts.strftime('%d.%m.%Y')}")
+                elif next_operation == "s":
+                    pass
+                elif next_operation == "x":
+                    break
+                else:
+                    print("Unknown command")
+                    continue
