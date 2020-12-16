@@ -1,26 +1,17 @@
 from lxml import html
 import requests
+import configparser
 
 from constants import ABR_TOURNAMENTS
 from jump import Jump
 from participant import Participant
 from race import Race
 
-LINE_SCHEME = {
-    'Rank': '',
-    'Bib': '',
-    'FIS code': '',
-    'Athlete': '',
-    'Year': '',
-    'Nation': '',
-    'Jump 1': '',
-    'Round 1': '',
-    'Jump 2': '',
-    'Round 2': '',
-    'Tot. Points': '',
-    'Diff. Points': ''
-}
-
+ignore_women = True
+ignore_children = True
+ignore_team = True
+ignore_cancelled = True
+ignore_value_error = False
 
 def check_if_error(tree):
     field = tree.xpath('//*[@class="error"]/text()')
@@ -175,7 +166,7 @@ def generate_single_line(participant: Participant):
     line += f"{participant.total_points if participant.total_points else ''};"
     line += f"{participant.diff_points if participant.diff_points else ''}\n"
     return line
-    
+
 
 def generate_participants(dictionary: dict, race: Race, disqualified=False):
     for i in range(len(dictionary["Athlete"])):
@@ -317,7 +308,38 @@ def jumpers_table(p: Participant):
             f"{p.diff_points if p.diff_points else '-': ^12}|")
 
 
+def create_or_open_config(config: configparser.ConfigParser, **kwargs):
+    try:
+        with open("config.ini", "w") as config_file:
+            config.add_section("Ignores")
+            if "ignore_women" in kwargs:
+                config.set("Ignores", "ignore_women", kwargs["ignore_women"])
+            if "ignore_children" in kwargs:
+                config.set("Ignores", "ignore_children", kwargs["ignore_children"])
+            if "ignore_cancelled" in kwargs:
+                config.set("Ignores", "ignore_cancelled", kwargs["ignore_cancelled"])
+            if "ignore_team" in kwargs:
+                config.set("Ignores", "ignore_team", kwargs["ignore_team"])
+            if "ignore_value_errors" in kwargs:
+                config.set("Ignores", "ignore_value_errors", kwargs["ignore_value_errors"])
+            config.write(config_file)
+            config_file.close()
+    finally:
+        config.read("config.ini")
+        return config
+
+
 if __name__ == "__main__":
+    config = configparser.ConfigParser()
+    config = create_or_open_config(
+        config,
+        ignore_women=True,
+        ignore_cancelled=True,
+        ignore_children=True,
+        ignore_team=True,
+        ignore_value_errors=False,
+                  )
+    ignore_women = config.getboolean("Ignores", "ignore")
     while True:
         races = []
         mode = input("Choose scraping for:\n 1 - single race, 2 - selected races, 3 - range of races, q - quit: ")
