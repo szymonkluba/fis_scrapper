@@ -191,24 +191,24 @@ def generate_participants(dictionary: dict, race: Race, disqualified=False):
                 jump = Jump(v[i])
             elif "Round" in k:
                 jump.set_points(v[i])
-            else:
-                participant_fields(k, v[i], participant)
+            elif k == "Bib":
+                participant.set_bib(v[i])
+            elif k == "FIS code":
+                participant.set_fis_code(v[i])
+            elif k == "Athlete":
+                participant.set_name(v[i])
+            elif k == "Year":
+                participant.set_year_born(v[i])
+            elif k == "Nation":
+                participant.set_nation(v[i])
+            elif k == "Tot. Points":
+                participant.set_total_points(v[i])
+            elif k == "Diff. Points":
+                participant.set_points_diff(v[i])
         if disqualified:
             race.add_disqualified(participant)
         else:
             race.add_participant(participant)
-
-
-def participant_fields(key, value, participant: Participant):
-    return {
-        "Bib": participant.set_bib(value),
-        "FIS code": participant.set_fis_code(value),
-        "Athlete": participant.set_name(value),
-        "Year": participant.set_year_born(value),
-        "Nation": participant.set_nation(value),
-        "Tot. Points": participant.set_total_points(value),
-        "Diff. Points": participant.set_points_diff(value)
-    }.get(key)
 
 
 def mode_prompts(mode):
@@ -246,8 +246,9 @@ def scrap_races(lookup_range, races: list):
                     kind=tree.xpath('//*[@class="event-header__kind"]/text()')[0],
                     date_starts=tree.xpath('//*[@class="date__full"]/text()')[0],
                     time_starts=tree.xpath('//*[@class="time__value"]/text()')[0],
-                            )
-                rank = tree.xpath('//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div[1]/text()')
+                )
+                rank = tree.xpath(
+                    '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div[1]/text()')
                 if rank:
                     path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div['
                     path_affx = ']/text()'
@@ -275,6 +276,45 @@ def scrap_races(lookup_range, races: list):
     return races
 
 
+def race_details(race: Race):
+    header = f"|{'Rank': ^4}|{'Bib': ^4}|{'FIS code': ^8}|{'Athlete': ^30}|{'Total points': ^12}|{'Points diff': ^12}|"
+    print("RACE DETAILS")
+    print("_" * len(header))
+    print(f"Place: {race.place}")
+    print(f"Subtitle: {race.subtitle}")
+    print(f"Kind: {race.kind}")
+    print(f"Date: {race.date_starts.strftime('%d.%m.%Y')}")
+    print(f"Time: {race.time_starts.strftime('%H:%M')} CET")
+    print("_" * len(header))
+    if race.participants:
+        print("=" * len(header))
+        print("Participants:")
+        print("-" * len(header))
+        print(header)
+        print("-" * len(header))
+        for p in race.participants:
+            print(jumpers_table(p))
+        print("-" * len(header))
+    if race.disqualified:
+        print("=" * len(header))
+        print("Disqualified:")
+        print("-" * len(header))
+        print(header)
+        print("-" * len(header))
+        for p in race.disqualified:
+            print(jumpers_table(p))
+        print("-" * len(header))
+
+
+def jumpers_table(p: Participant):
+    return (f"|{p.rank if p.rank else '-': ^4}|"
+            f"{p.bib if p.bib else '-': ^4}|"
+            f"{p.fis_code if p.fis_code else '-': ^8}|"
+            f"{p.name if p.name else '-': ^30}|"
+            f"{p.total_points if p.total_points else '-': ^12}|"
+            f"{p.diff_points if p.diff_points else '-': ^12}|")
+
+
 if __name__ == "__main__":
     while True:
         races = []
@@ -297,12 +337,30 @@ if __name__ == "__main__":
                 print("What next?")
                 next_operation = input("l - list races, s - save to file, x - exit: ")
                 if next_operation == "l":
-                    for i, race in enumerate(races):
-                        print(f"{i+1}. {race.fis_id} {race.place} {race.date_starts.strftime('%d.%m.%Y')}")
+                    while True:
+                        print("\nList of races:")
+                        for i, race in enumerate(races):
+                            print(f"{i + 1}. {race.fis_id} {race.place} {race.date_starts.strftime('%d.%m.%Y')}")
+                        next_operation = input("Enter race number for details, b - go back: ")
+                        if next_operation.isnumeric():
+                            next_operation = int(next_operation) - 1
+                            try:
+                                race_details(races[next_operation])
+                            except IndexError:
+                                print("No such race")
+                                continue
+                        elif next_operation == "b":
+                            break
+                        else:
+                            print("Unknown command")
                 elif next_operation == "s":
                     pass
                 elif next_operation == "x":
-                    break
+                    next_operation = input("Are you sure? Data not saved to file will be gone. y/n: ")
+                    if next_operation == 'y':
+                        break
+                    else:
+                        continue
                 else:
                     print("Unknown command")
                     continue
