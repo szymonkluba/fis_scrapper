@@ -1,10 +1,10 @@
 from lxml import html
 import requests
 
+from constants import ABR_TOURNAMENTS
 from jump import Jump
 from participant import Participant
 from race import Race
-
 
 LINE_SCHEME = {
     'Rank': '',
@@ -99,15 +99,17 @@ def int_or_empty(value):
         return int(input(f"Problem with value: {value}, you may input correct one: "))
 
 
-# def save_to_file(filename, no):
-#     try:
-#         with open(filename, 'x') as file:
-#             file.writelines(lines)
-#             print(f"Zapisano w: {filename}")
-#     except FileExistsError:
-#         no += 1
-#         filename = f'files/{date.strftime("%Y-%m-%d")}_{tournament}_{country}_{hill_size}_{no}.csv'
-#         save_to_file(filename, no)
+def save_to_file(filename, lines, no=0):
+    try:
+        with open(filename, 'x') as file:
+            file.writelines(lines)
+            print(f"Zapisano w: {filename}")
+    except FileExistsError:
+        no += 1
+        file_name = f"CSV/{race.date_starts.strftime('%Y-%m-%d')}_" \
+                    f"{ABR_TOURNAMENTS[race.subtitle]}_" \
+                    f"{race.place.replace(' ', '_')} ({no}).csv"
+        save_to_file(file_name, lines, no)
 
 
 def generate_dictionary_of_columns(columns, tree, path_pref, path_affx, ):
@@ -146,20 +148,38 @@ def fill_columns(columns, tree, path_pref, path_affx, disqualified):
     return columns
 
 
-def generate_lines(dictionary, lines):
-    for i in range(len(dictionary['Athlete'])):
-        line = ''
-        for k, v in LINE_SCHEME.items():
-            if k in dictionary:
-                line = f'{line}{dictionary[k][i]},'
-            else:
-                line = f'{line}{v},'
-        line = f'{line}\n'
-        lines.append(line)
+def generate_lines(race: Race):
+    lines = []
+    if race.participants:
+        for p in race.participants:
+            line = generate_single_line(p)
+            lines.append(line)
+    if race.disqualified:
+        lines.append("##### DISQUALIFIED #####\n")
+        for d in race.disqualified:
+            line = generate_single_line(d)
+            lines.append(line)
+    return lines
 
+
+def generate_single_line(participant: Participant):
+    line = ""
+    line += f"{participant.rank if participant.rank else ''};"
+    line += f"{participant.bib if participant.bib else ''};"
+    line += f"{participant.fis_code if participant.fis_code else ''};"
+    line += f"{participant.name if participant.name else ''};"
+    line += f"{participant.year_born if participant.year_born else ''};"
+    line += f"{participant.nation if participant.nation else ''};"
+    for j in participant.jumps:
+        line += f"{j.distance if j.distance else ''};{j.points if j.points else ''};"
+    line += f"{participant.total_points if participant.total_points else ''};"
+    line += f"{participant.diff_points if participant.diff_points else ''}\n"
+    return line
+    
 
 def generate_participants(dictionary: dict, race: Race, disqualified=False):
-    for i in range(len(dictionary['Athlete'])):
+    for i in range(len(dictionary["Athlete"])):
+        participant = None
         for k, v in dictionary.items():
             if k == "Rank":
                 participant = Participant(v[i])
@@ -167,6 +187,7 @@ def generate_participants(dictionary: dict, race: Race, disqualified=False):
                 jump = Jump(v[i])
             elif "Round" in k:
                 jump.set_points(v[i])
+                participant.add_jump(jump)
             elif k == "Bib":
                 participant.set_bib(v[i])
             elif k == "FIS code":
@@ -330,7 +351,12 @@ if __name__ == "__main__":
                         else:
                             print("Unknown command")
                 elif next_operation == "s":
-                    pass
+                    for race in races:
+                        file_name = f"CSV/{race.date_starts.strftime('%Y-%m-%d')}_" \
+                                    f"{ABR_TOURNAMENTS[race.subtitle]}_" \
+                                    f"{race.place.replace(' ', '_')}.csv"
+                        lines = generate_lines(race)
+                        save_to_file(file_name, lines)
                 elif next_operation == "x":
                     next_operation = input("Are you sure? Data not saved to file will be gone. y/n: ")
                     if next_operation == 'y':

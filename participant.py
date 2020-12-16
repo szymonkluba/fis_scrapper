@@ -8,12 +8,12 @@ class Participant:
     name = ""
     year_born = 0
     nation = ""
-    jumps = []
     total_points = 0.0
     diff_points = 0.0
 
     def __init__(self, rank: int):
         self.rank = rank
+        self.jumps = []
 
     def set_bib(self, bib: int):
         self.bib = bib
