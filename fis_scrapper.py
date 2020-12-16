@@ -236,13 +236,18 @@ def scrap_races(lookup_range, races: list):
             elif check_team(tree):
                 print('Team competition - passing')
             else:
+                time_starts = tree.xpath('//*[@class="time__value"]/text()')
+                if time_starts:
+                    time_starts = time_starts[0]
+                else:
+                    time_starts = "00:00"
                 race = Race(
                     fis_id=i,
                     place=tree.xpath('//*[@class="event-header__name heading_off-sm-style"]/h1/text()')[0],
                     subtitle=tree.xpath('//*[@class="event-header__subtitle"]/text()')[0].strip(),
                     kind=tree.xpath('//*[@class="event-header__kind"]/text()')[0],
                     date_starts=tree.xpath('//*[@class="date__full"]/text()')[0],
-                    time_starts=tree.xpath('//*[@class="time__value"]/text()')[0],
+                    time_starts=time_starts,
                 )
                 rank = tree.xpath(
                     '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div[1]/text()')

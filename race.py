@@ -2,8 +2,6 @@ from datetime import datetime
 
 
 class Race:
-    participants = []
-    disqualified = []
     is_cancelled = False
 
     def __init__(self, fis_id: int, place: str, subtitle: str, kind: str, date_starts: str, time_starts: str):
@@ -12,7 +10,10 @@ class Race:
         self.subtitle = subtitle
         self.kind = kind
         self.date_starts = datetime.strptime(date_starts, '%B %d, %Y')
-        self.time_starts = datetime.strptime(time_starts, "%H:%M")
+        if time_starts:
+            self.time_starts = datetime.strptime(time_starts, "%H:%M")
+        self.participants = []
+        self.disqualified = []
 
     def set_status_to_cancelled(self):
         self.is_cancelled = True
