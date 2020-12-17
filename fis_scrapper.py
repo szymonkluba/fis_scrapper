@@ -220,6 +220,8 @@ def scrap_races(lookup_range, races: list):
             print('No data for given FIS ID')
         elif config.getboolean("Ignores", "ignore_cancelled") and cancelled:
             print("Race cancelled - passing")
+        elif check_if_empty(tree):
+            print('No data for given FIS ID')
         else:
             if config.getboolean("Ignores", "ignore_women") and check_woman(tree):
                 print('Woman competition - passing')
