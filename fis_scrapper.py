@@ -7,11 +7,8 @@ from jump import Jump
 from participant import Participant
 from race import Race
 
-ignore_women = True
-ignore_children = True
-ignore_team = True
-ignore_cancelled = True
-ignore_value_error = False
+config = None
+
 
 def check_if_error(tree):
     field = tree.xpath('//*[@class="error"]/text()')
@@ -48,13 +45,6 @@ def check_team(tree):
     return False
 
 
-def check_if_full(tree):
-    field = tree.xpath('//*[@id="events-info-results"]/div/a[1]/div/div/div[3]/text()')[0]
-    if field.isnumeric():
-        return True
-    return False
-
-
 def disqualified_exists(tree):
     field_1 = tree.xpath('//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a/div/div/div[2]')
     field_2 = tree.xpath('//*[@id="ajx_results"]/section/div/div/div/div[2]/div[3]/div/div/div')
@@ -78,7 +68,10 @@ def float_or_empty(value):
     try:
         return float(value.replace(',', '.'))
     except ValueError:
-        return float(input(f"Problem with value: {value}, you may input correct one: "))
+        if config.getboolean("Ignores", "ignore_value_errors"):
+            return value
+        else:
+            return float(input(f"Problem with value: {value}, you may input correct one: "))
 
 
 def int_or_empty(value):
@@ -87,7 +80,10 @@ def int_or_empty(value):
     try:
         return int(value)
     except ValueError:
-        return int(input(f"Problem with value: {value}, you may input correct one: "))
+        if config.getboolean("Ignores", "ignore_value_errors"):
+            return value
+        else:
+            return int(input(f"Problem with value: {value}, you may input correct one: "))
 
 
 def save_to_file(filename, lines, no=0):
@@ -129,7 +125,7 @@ def fill_columns(columns, tree, path_pref, path_affx, disqualified):
         else:
             temp_list = tree.xpath(path_pref + str(columns[k]) + path_affx)
         for i in range(len(temp_list)):
-            if k == "Athlete" or k == "Nation":
+            if k == "Athlete" or k == "Nation" or k == "Name":
                 temp_list[i] = value_from_empty_node(temp_list[i]).replace('\n', '').strip()
             elif k == "Rank" or k == "Bib" or k == "FIS code" or k == "Year":
                 temp_list[i] = int_or_empty(value_from_empty_node(temp_list[i]))
@@ -169,7 +165,7 @@ def generate_single_line(participant: Participant):
 
 
 def generate_participants(dictionary: dict, race: Race, disqualified=False):
-    for i in range(len(dictionary["Athlete"])):
+    for i in range(len(dictionary["FIS code"])):
         participant = None
         for k, v in dictionary.items():
             if k == "Rank":
@@ -183,12 +179,15 @@ def generate_participants(dictionary: dict, race: Race, disqualified=False):
                 participant.set_bib(v[i])
             elif k == "FIS code":
                 participant.set_fis_code(v[i])
-            elif k == "Athlete":
+            elif k == "Athlete" or k == "Name":
                 participant.set_name(v[i])
             elif k == "Year":
                 participant.set_year_born(v[i])
             elif k == "Nation":
-                participant.set_nation(v[i])
+                if len(v) < len(dictionary["FIS code"]):
+                    participant.set_nation(v[i // 5])
+                else:
+                    participant.set_nation(v[i])
             elif k == "Tot. Points":
                 participant.set_total_points(v[i])
             elif k == "Diff. Points":
@@ -216,15 +215,17 @@ def scrap_races(lookup_range, races: list):
         path = 'https://www.fis-ski.com/DB/general/results.html?sectorcode=JP&raceid=' + raceid
         page = requests.get(path)
         tree = html.fromstring(page.content)
-
-        if check_if_empty(tree) or check_if_error(tree):
-            print('Nothing to get:(')
+        cancelled = tree.xpath('//*[@class="event-status event-status_cancelled"]/.')
+        if check_if_error(tree):
+            print('No data for given FIS ID')
+        elif config.getboolean("Ignores", "ignore_cancelled") and cancelled:
+            print("Race cancelled - passing")
         else:
-            if check_woman(tree):
+            if config.getboolean("Ignores", "ignore_women") and check_woman(tree):
                 print('Woman competition - passing')
-            elif check_children(tree):
+            elif config.getboolean("Ignores", "ignore_children") and check_children(tree):
                 print('Children competition - passing')
-            elif check_team(tree):
+            elif config.getboolean("Ignores", "ignore_team") and check_team(tree):
                 print('Team competition - passing')
             else:
                 time_starts = tree.xpath('//*[@class="time__value"]/text()')
@@ -240,32 +241,36 @@ def scrap_races(lookup_range, races: list):
                     date_starts=tree.xpath('//*[@class="date__full"]/text()')[0],
                     time_starts=time_starts,
                 )
-                rank = tree.xpath(
-                    '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div[1]/text()')
-                if rank:
-                    path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div['
-                    path_affx = ']/text()'
-                    columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
-                    disqualified = columns.copy()
-                    path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
-                    path_affx = ']/.'
-                    columns = fill_columns(columns, tree, path_pref, path_affx, False)
+                if cancelled:
+                    race.set_status_to_cancelled()
+                    races.append(race)
                 else:
-                    path_pref = '//*[@id="ajx_results"]/section/div/div/div/div/div[1]/div/div/div/div/div['
-                    path_affx = ']/text()'
-                    columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
-                    disqualified = columns.copy()
-                    path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
-                    path_affx = ']/.'
-                    columns = fill_columns(columns, tree, path_pref, path_affx, False)
-                generate_participants(columns, race)
-                if disqualified_exists(tree):
-                    path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a/div/div/div['
-                    path_affx = ']/.'
-                    fill_columns(disqualified, tree, path_pref, path_affx, disqualified_exists(tree))
-                    lines.append('disqualified\n')
-                    generate_participants(disqualified, race, disqualified=True)
-                races.append(race)
+                    rank = tree.xpath(
+                        '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div[1]/text()')
+                    if rank:
+                        path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div['
+                        path_affx = ']/text()'
+                        columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
+                        disqualified = columns.copy()
+                        path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
+                        path_affx = ']/.'
+                        columns = fill_columns(columns, tree, path_pref, path_affx, False)
+                    else:
+                        path_pref = '//*[@id="ajx_results"]/section/div/div/div/div/div[1]/div/div/div/div/div['
+                        path_affx = ']/text()'
+                        columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
+                        disqualified = columns.copy()
+                        path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
+                        path_affx = ']/.'
+                        columns = fill_columns(columns, tree, path_pref, path_affx, False)
+                    generate_participants(columns, race)
+                    if disqualified_exists(tree):
+                        path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a/div/div/div['
+                        path_affx = ']/.'
+                        fill_columns(disqualified, tree, path_pref, path_affx, disqualified_exists(tree))
+                        lines.append('disqualified\n')
+                        generate_participants(disqualified, race, disqualified=True)
+                    races.append(race)
     return races
 
 
@@ -279,6 +284,8 @@ def race_details(race: Race):
     print(f"Date: {race.date_starts.strftime('%d.%m.%Y')}")
     print(f"Time: {race.time_starts.strftime('%H:%M')} CET")
     print("_" * len(header))
+    if race.is_cancelled:
+        print("##### CANCELLED #####")
     if race.participants:
         print("=" * len(header))
         print("Participants:")
@@ -308,30 +315,51 @@ def jumpers_table(p: Participant):
             f"{p.diff_points if p.diff_points else '-': ^12}|")
 
 
-def create_or_open_config(config: configparser.ConfigParser, **kwargs):
+def open_config(config: configparser.ConfigParser, **kwargs):
     try:
-        with open("config.ini", "w") as config_file:
-            config.add_section("Ignores")
+        with open("config.ini", "x") as config_file:
+            config["Ignores"] = {}
             if "ignore_women" in kwargs:
-                config.set("Ignores", "ignore_women", kwargs["ignore_women"])
+                config["Ignores"]["ignore_women"] = "yes" if kwargs["ignore_women"] else "no"
             if "ignore_children" in kwargs:
-                config.set("Ignores", "ignore_children", kwargs["ignore_children"])
+                config["Ignores"]["ignore_children"] = "yes" if kwargs["ignore_children"] else "no"
             if "ignore_cancelled" in kwargs:
-                config.set("Ignores", "ignore_cancelled", kwargs["ignore_cancelled"])
+                config["Ignores"]["ignore_cancelled"] = "yes" if kwargs["ignore_cancelled"] else "no"
             if "ignore_team" in kwargs:
-                config.set("Ignores", "ignore_team", kwargs["ignore_team"])
+                config["Ignores"]["ignore_team"] = "yes" if kwargs["ignore_team"] else "no"
             if "ignore_value_errors" in kwargs:
-                config.set("Ignores", "ignore_value_errors", kwargs["ignore_value_errors"])
+                config["Ignores"]["ignore_value_errors"] = "yes" if kwargs["ignore_value_errors"] else "no"
             config.write(config_file)
-            config_file.close()
     finally:
         config.read("config.ini")
         return config
 
 
+def settings(config: configparser.ConfigParser):
+    while True:
+        for i, v in enumerate(config["Ignores"].items()):
+            print(f"{i + 1}. {v[0].capitalize().replace('_', ' ')}: {v[1]}")
+        operation = input("Enter setting number to switch, s - save and exit,  x - exit: ")
+        if operation.isnumeric():
+            options = {}
+            for i, k in enumerate(config["Ignores"].keys()):
+                options[str(i + 1)] = k
+            for num in operation:
+                config["Ignores"][options[num]] = "no" if config["Ignores"].getboolean(options[num]) else "yes"
+        elif operation == "s":
+            with open("config.ini", "w") as config_file:
+                config.write(config_file)
+            break
+        elif operation == "x":
+            break
+        else:
+            print("Unknown operation")
+            continue
+
+
 if __name__ == "__main__":
     config = configparser.ConfigParser()
-    config = create_or_open_config(
+    config = open_config(
         config,
         ignore_women=True,
         ignore_cancelled=True,
@@ -339,15 +367,21 @@ if __name__ == "__main__":
         ignore_team=True,
         ignore_value_errors=False,
                   )
-    ignore_women = config.getboolean("Ignores", "ignore")
     while True:
         races = []
-        mode = input("Choose scraping for:\n 1 - single race, 2 - selected races, 3 - range of races, q - quit: ")
-        if mode not in "123q":
+        mode = input("Choose scraping for:\n "
+                     "1 - single race, "
+                     "2 - selected races, "
+                     "3 - range of races, "
+                     "s - settings, "
+                     "q - quit: ")
+        if mode not in "123qs":
             print("Unknown mode")
             continue
         elif mode == "q":
             break
+        elif mode == "s":
+            settings(config)
         else:
             lookup_range = input(mode_prompts(mode))
             if "-" in lookup_range:
@@ -379,10 +413,16 @@ if __name__ == "__main__":
                             print("Unknown command")
                 elif next_operation == "s":
                     for race in races:
-                        file_name = f"CSV/{race.date_starts.strftime('%Y-%m-%d')}_" \
+                        if race.is_cancelled:
+                            file_name = f"CSV/CANCELLED_{race.date_starts.strftime('%Y-%m-%d')}_" \
                                     f"{ABR_TOURNAMENTS[race.subtitle]}_" \
                                     f"{race.place.replace(' ', '_')}.csv"
-                        lines = generate_lines(race)
+                            lines = ["##### CANCELLED #####"]
+                        else:
+                            file_name = f"CSV/{race.date_starts.strftime('%Y-%m-%d')}_" \
+                                        f"{ABR_TOURNAMENTS[race.subtitle]}_" \
+                                        f"{race.place.replace(' ', '_')}.csv"
+                            lines = generate_lines(race)
                         save_to_file(file_name, lines)
                 elif next_operation == "x":
                     next_operation = input("Are you sure? Data not saved to file will be gone. y/n: ")
