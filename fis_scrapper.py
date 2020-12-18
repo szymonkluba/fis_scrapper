@@ -55,8 +55,8 @@ def disqualified_exists(tree):
 
 def value_from_empty_node(node):
     try:
-        if node.text:
-            return node.text
+        if node[0].text:
+            return node[0].text
         return ""
     except AttributeError:
         return ""
@@ -107,32 +107,63 @@ def generate_dictionary_of_columns(columns, tree, path_pref, path_affx, ):
     return columns
 
 
-def fill_columns(columns, tree, path_pref, path_affx, disqualified):
-    for k, v in columns.items():
-        if k == 'Nation' and disqualified:
-            full_path = ''.join([
-                '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a/div/div/div[',
-                str(v),
-                ']/div/span[2]/.'
-            ])
-            temp_list = tree.xpath(full_path)
-        elif k == 'Nation':
-            full_path = ''.join([
-                '//*[@id="events-info-results"]/div/a/div/div/div[',
-                str(v),
-                ']/div/span[2]/.'])
-            temp_list = tree.xpath(full_path)
-        else:
-            temp_list = tree.xpath(path_pref + str(columns[k]) + path_affx)
-        for i in range(len(temp_list)):
-            if k == "Athlete" or k == "Nation" or k == "Name":
-                temp_list[i] = value_from_empty_node(temp_list[i]).replace('\n', '').strip()
-            elif k == "Rank" or k == "Bib" or k == "FIS code" or k == "Year":
-                temp_list[i] = int_or_empty(value_from_empty_node(temp_list[i]))
+def generate_jumpers(columns: dict, tree, race_list: list, path_pref, path_mid, path_affx, disqualified=False):
+    row = 0
+    while True:
+        row += 1
+        jumper = None
+        for k, v in columns.items():
+            if k == 'Nation' and disqualified:
+                full_path = ''.join([
+                    '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a[',
+                    str(row),
+                    ']/div/div/div[',
+                    str(v),
+                    ']/div/span[2]/.'
+                ])
+                value = tree.xpath(full_path)
+            elif k == 'Nation':
+                full_path = ''.join([
+                    '//*[@id="events-info-results"]/div/a[',
+                    str(row),
+                    ']/div/div/div[',
+                    str(v),
+                    ']/div/span[2]/.'])
+                value = tree.xpath(full_path)
             else:
-                temp_list[i] = float_or_empty(value_from_empty_node(temp_list[i]))
-        columns[k] = temp_list
-    return columns
+                value = tree.xpath(path_pref + str(row) + path_mid + str(columns[k]) + path_affx)
+            if not value:
+                break
+            if k == "Rank":
+                jumper = Participant(int_or_empty(value_from_empty_node(value)))
+            elif "Jump" in k:
+                jump = Jump(float_or_empty(value_from_empty_node(value)))
+            elif "Round" in k:
+                jump.set_points(float_or_empty(value_from_empty_node(value)))
+                jumper.add_jump(jump)
+            elif k == "Bib":
+                jumper.set_bib(int_or_empty(value_from_empty_node(value)))
+            elif k == "FIS code":
+                jumper.set_fis_code(int_or_empty(value_from_empty_node(value)))
+            elif k == "Athlete" or k == "Name":
+                value = value_from_empty_node(value).replace("\n", "").strip()
+                if value != "":
+                    jumper.set_name(value)
+                else:
+                    break
+            elif k == "Year":
+                jumper.set_year_born(int_or_empty(value_from_empty_node(value)))
+            elif k == "Nation":
+                jumper.set_nation(value_from_empty_node(value))
+            elif k == "Tot. Points":
+                jumper.set_total_points(float_or_empty(value_from_empty_node(value)))
+            elif k == "Diff. Points":
+                jumper.set_points_diff(float_or_empty(value_from_empty_node(value)))
+        if jumper and jumper.name:
+            race_list.append(jumper)
+        else:
+            break
+    return race_list
 
 
 def generate_lines(race: Race):
@@ -162,40 +193,6 @@ def generate_single_line(participant: Participant):
     line += f"{participant.total_points if participant.total_points else ''};"
     line += f"{participant.diff_points if participant.diff_points else ''}\n"
     return line
-
-
-def generate_participants(dictionary: dict, race: Race, disqualified=False):
-    for i in range(len(dictionary["FIS code"])):
-        participant = None
-        for k, v in dictionary.items():
-            if k == "Rank":
-                participant = Participant(v[i])
-            elif "Jump" in k:
-                jump = Jump(v[i])
-            elif "Round" in k:
-                jump.set_points(v[i])
-                participant.add_jump(jump)
-            elif k == "Bib":
-                participant.set_bib(v[i])
-            elif k == "FIS code":
-                participant.set_fis_code(v[i])
-            elif k == "Athlete" or k == "Name":
-                participant.set_name(v[i])
-            elif k == "Year":
-                participant.set_year_born(v[i])
-            elif k == "Nation":
-                if len(v) < len(dictionary["FIS code"]):
-                    participant.set_nation(v[i // 5])
-                else:
-                    participant.set_nation(v[i])
-            elif k == "Tot. Points":
-                participant.set_total_points(v[i])
-            elif k == "Diff. Points":
-                participant.set_points_diff(v[i])
-        if disqualified:
-            race.add_disqualified(participant)
-        else:
-            race.add_participant(participant)
 
 
 def mode_prompts(mode):
@@ -253,25 +250,31 @@ def scrap_races(lookup_range, races: list):
                         path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[1]/div/div/div/div/div['
                         path_affx = ']/text()'
                         columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
-                        disqualified = columns.copy()
-                        path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
-                        path_affx = ']/.'
-                        columns = fill_columns(columns, tree, path_pref, path_affx, False)
                     else:
                         path_pref = '//*[@id="ajx_results"]/section/div/div/div/div/div[1]/div/div/div/div/div['
                         path_affx = ']/text()'
                         columns = generate_dictionary_of_columns(columns, tree, path_pref, path_affx)
-                        disqualified = columns.copy()
-                        path_pref = '//*[@id="events-info-results"]/div/a/div/div/div['
-                        path_affx = ']/.'
-                        columns = fill_columns(columns, tree, path_pref, path_affx, False)
-                    generate_participants(columns, race)
+                    path_pref = '//*[@id="events-info-results"]/div/a['
+                    path_mid = ']/div/div/div['
+                    path_affx = ']/.'
+                    race.participants = generate_jumpers(columns,
+                                                         tree,
+                                                         race.participants,
+                                                         path_pref,
+                                                         path_mid,
+                                                         path_affx)
                     if disqualified_exists(tree):
-                        path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a/div/div/div['
+                        path_pref = '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a['
+                        path_mid = ']/div/div/div['
                         path_affx = ']/.'
-                        fill_columns(disqualified, tree, path_pref, path_affx, disqualified_exists(tree))
+                        race.disqualified = generate_jumpers(columns,
+                                                             tree,
+                                                             race.disqualified,
+                                                             path_pref,
+                                                             path_mid,
+                                                             path_affx,
+                                                             disqualified_exists(tree))
                         lines.append('disqualified\n')
-                        generate_participants(disqualified, race, disqualified=True)
                     races.append(race)
     return races
 
@@ -368,7 +371,7 @@ if __name__ == "__main__":
         ignore_children=True,
         ignore_team=True,
         ignore_value_errors=False,
-                  )
+    )
     while True:
         races = []
         mode = input("Choose scraping for:\n "
@@ -417,8 +420,8 @@ if __name__ == "__main__":
                     for race in races:
                         if race.is_cancelled:
                             file_name = f"CSV/CANCELLED_{race.date_starts.strftime('%Y-%m-%d')}_" \
-                                    f"{ABR_TOURNAMENTS[race.subtitle]}_" \
-                                    f"{race.place.replace(' ', '_')}.csv"
+                                        f"{ABR_TOURNAMENTS[race.subtitle]}_" \
+                                        f"{race.place.replace(' ', '_')}.csv"
                             lines = ["##### CANCELLED #####"]
                         else:
                             file_name = f"CSV/{race.date_starts.strftime('%Y-%m-%d')}_" \
