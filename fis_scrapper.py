@@ -1,13 +1,16 @@
-from lxml import html
-import requests
 import configparser
 
-from constants import ABR_TOURNAMENTS
+import requests
+from lxml import html
+
+from file import File
+from interface import Interface
 from jump import Jump
 from participant import Participant
 from race import Race
 
 config = None
+lines = []
 
 
 def check_if_error(tree):
@@ -86,23 +89,14 @@ def int_or_empty(value):
             return int(input(f"Problem with value: {value}, you may input correct one: "))
 
 
-def save_to_file(filename, lines, no=0):
-    try:
-        with open(filename, 'x') as file:
-            file.writelines(lines)
-            print(f"Zapisano w: {filename}")
-    except FileExistsError:
-        no += 1
-        file_name = f"CSV/{race.date_starts.strftime('%Y-%m-%d')}_" \
-                    f"{ABR_TOURNAMENTS[race.subtitle]}_" \
-                    f"{race.place.replace(' ', '_')} ({no}).csv"
-        save_to_file(file_name, lines, no)
-
-
 def generate_dictionary_of_columns(columns, tree, path_pref, path_affx, ):
     counter = 1
     while tree.xpath(f'{path_pref}{counter}{path_affx}'):
-        columns[tree.xpath(f'{path_pref}{counter}{path_affx}')[0]] = counter
+        key = tree.xpath(f'{path_pref}{counter}{path_affx}')[0]
+        key = key.strip().lower().replace(".", "").replace(" ", "_")
+        if key == "athlete":
+            key = "name"
+        columns[key] = counter
         counter += 1
     return columns
 
@@ -112,53 +106,35 @@ def generate_jumpers(columns: dict, tree, race_list: list, path_pref, path_mid, 
     while True:
         row += 1
         jumper = None
-        for k, v in columns.items():
-            if k == 'Nation' and disqualified:
-                full_path = ''.join([
-                    '//*[@id="ajx_results"]/section/div/div/div/div[2]/div[4]/div/a[',
-                    str(row),
-                    ']/div/div/div[',
-                    str(v),
-                    ']/div/span[2]/.'
-                ])
-                value = tree.xpath(full_path)
-            elif k == 'Nation':
-                full_path = ''.join([
-                    '//*[@id="events-info-results"]/div/a[',
-                    str(row),
-                    ']/div/div/div[',
-                    str(v),
-                    ']/div/span[2]/.'])
-                value = tree.xpath(full_path)
+        for k in columns:
+            if k == 'nation':
+                value = tree.xpath(path_pref
+                                   + str(row)
+                                   + path_mid
+                                   + str(columns[k])
+                                   + path_affx.replace("/.", "/div/span[2]/."))
             else:
-                value = tree.xpath(path_pref + str(row) + path_mid + str(columns[k]) + path_affx)
+                value = tree.xpath(path_pref
+                                   + str(row)
+                                   + path_mid
+                                   + str(columns[k])
+                                   + path_affx)
             if not value:
                 break
-            if k == "Rank":
+            if k == "rank":
                 jumper = Participant(int_or_empty(value_from_empty_node(value)))
-            elif "Jump" in k:
+            elif "jump" in k:
                 jump = Jump(float_or_empty(value_from_empty_node(value)))
-            elif "Round" in k:
+            elif "round" in k:
                 jump.set_points(float_or_empty(value_from_empty_node(value)))
                 jumper.add_jump(jump)
-            elif k == "Bib":
-                jumper.set_bib(int_or_empty(value_from_empty_node(value)))
-            elif k == "FIS code":
-                jumper.set_fis_code(int_or_empty(value_from_empty_node(value)))
-            elif k == "Athlete" or k == "Name":
-                value = value_from_empty_node(value).replace("\n", "").strip()
-                if value != "":
-                    jumper.set_name(value)
-                else:
-                    break
-            elif k == "Year":
-                jumper.set_year_born(int_or_empty(value_from_empty_node(value)))
-            elif k == "Nation":
-                jumper.set_nation(value_from_empty_node(value))
-            elif k == "Tot. Points":
-                jumper.set_total_points(float_or_empty(value_from_empty_node(value)))
-            elif k == "Diff. Points":
-                jumper.set_points_diff(float_or_empty(value_from_empty_node(value)))
+            else:
+                value = value_from_empty_node(value).strip()
+                if value.isdigit():
+                    value = int_or_empty(value)
+                elif value.isnumeric():
+                    value = float_or_empty(value)
+                jumper.__setattr__(k, value)
         if jumper and jumper.name:
             race_list.append(jumper)
         else:
@@ -166,50 +142,11 @@ def generate_jumpers(columns: dict, tree, race_list: list, path_pref, path_mid, 
     return race_list
 
 
-def generate_lines(race: Race):
-    lines = []
-    if race.participants:
-        for p in race.participants:
-            line = generate_single_line(p)
-            lines.append(line)
-    if race.disqualified:
-        lines.append("##### DISQUALIFIED #####\n")
-        for d in race.disqualified:
-            line = generate_single_line(d)
-            lines.append(line)
-    return lines
-
-
-def generate_single_line(participant: Participant):
-    line = ""
-    line += f"{participant.rank if participant.rank else ''};"
-    line += f"{participant.bib if participant.bib else ''};"
-    line += f"{participant.fis_code if participant.fis_code else ''};"
-    line += f"{participant.name if participant.name else ''};"
-    line += f"{participant.year_born if participant.year_born else ''};"
-    line += f"{participant.nation if participant.nation else ''};"
-    for j in participant.jumps:
-        line += f"{j.distance if j.distance else ''};{j.points if j.points else ''};"
-    line += f"{participant.total_points if participant.total_points else ''};"
-    line += f"{participant.diff_points if participant.diff_points else ''}\n"
-    return line
-
-
-def mode_prompts(mode):
-    return {
-        "1": "Enter FIS ID of race: ",
-        "2": "Enter FIS IDs of races, separated by spaces (ex. 1111 2222 3333): ",
-        "3": "Enter range of FIS IDs, separated by \"-\" (ex. 1111-2222: "
-    }.get(mode)
-
-
 def scrap_races(lookup_range, races: list):
-    for i in lookup_range:
-        print(f'Current FIS ID: {i}')
-        lines = []
+    for f_id in lookup_range:
+        print(f'Current FIS ID: {f_id}')
         columns = dict()
-        raceid = str(i)
-        path = 'https://www.fis-ski.com/DB/general/results.html?sectorcode=JP&raceid=' + raceid
+        path = f'https://www.fis-ski.com/DB/general/results.html?sectorcode=JP&raceid={f_id}'
         page = requests.get(path)
         tree = html.fromstring(page.content)
         cancelled = tree.xpath('//*[@class="event-status event-status_cancelled"]/.')
@@ -233,7 +170,7 @@ def scrap_races(lookup_range, races: list):
                 else:
                     time_starts = "00:00"
                 race = Race(
-                    fis_id=i,
+                    fis_id=f_id,
                     place=tree.xpath('//*[@class="event-header__name heading_off-sm-style"]/h1/text()')[0],
                     subtitle=tree.xpath('//*[@class="event-header__subtitle"]/text()')[0].strip(),
                     kind=tree.xpath('//*[@class="event-header__kind"]/text()')[0],
@@ -277,47 +214,6 @@ def scrap_races(lookup_range, races: list):
                         lines.append('disqualified\n')
                     races.append(race)
     return races
-
-
-def race_details(race: Race):
-    header = f"|{'Rank': ^4}|{'Bib': ^4}|{'FIS code': ^8}|{'Athlete': ^30}|{'Total points': ^12}|{'Points diff': ^12}|"
-    print("RACE DETAILS")
-    print("_" * len(header))
-    print(f"Place: {race.place}")
-    print(f"Subtitle: {race.subtitle}")
-    print(f"Kind: {race.kind}")
-    print(f"Date: {race.date_starts.strftime('%d.%m.%Y')}")
-    print(f"Time: {race.time_starts.strftime('%H:%M')} CET")
-    print("_" * len(header))
-    if race.is_cancelled:
-        print("##### CANCELLED #####")
-    if race.participants:
-        print("=" * len(header))
-        print("Participants:")
-        print("-" * len(header))
-        print(header)
-        print("-" * len(header))
-        for p in race.participants:
-            print(jumpers_table(p))
-        print("-" * len(header))
-    if race.disqualified:
-        print("=" * len(header))
-        print("Disqualified:")
-        print("-" * len(header))
-        print(header)
-        print("-" * len(header))
-        for p in race.disqualified:
-            print(jumpers_table(p))
-        print("-" * len(header))
-
-
-def jumpers_table(p: Participant):
-    return (f"|{p.rank if p.rank else '-': ^4}|"
-            f"{p.bib if p.bib else '-': ^4}|"
-            f"{p.fis_code if p.fis_code else '-': ^8}|"
-            f"{p.name if p.name else '-': ^30}|"
-            f"{p.total_points if p.total_points else '-': ^12}|"
-            f"{p.diff_points if p.diff_points else '-': ^12}|")
 
 
 def open_config(config: configparser.ConfigParser, **kwargs):
@@ -374,6 +270,7 @@ if __name__ == "__main__":
     )
     while True:
         races = []
+        files = []
         mode = input("Choose scraping for:\n "
                      "1 - single race, "
                      "2 - selected races, "
@@ -388,7 +285,7 @@ if __name__ == "__main__":
         elif mode == "s":
             settings(config)
         else:
-            lookup_range = input(mode_prompts(mode))
+            lookup_range = input(Interface.mode_prompts(mode))
             if "-" in lookup_range:
                 lookup_range = list(map(int, lookup_range.split("-")))
                 lookup_range = range(lookup_range[0], lookup_range[1] + 1)
@@ -396,6 +293,9 @@ if __name__ == "__main__":
             else:
                 lookup_range = lookup_range.split()
                 races = scrap_races(lookup_range, races)
+            for race in races:
+                file = File(race)
+                files.append(file)
             while True:
                 print("What next?")
                 next_operation = input("l - list races, s - save to file, x - exit: ")
@@ -408,7 +308,7 @@ if __name__ == "__main__":
                         if next_operation.isnumeric():
                             next_operation = int(next_operation) - 1
                             try:
-                                race_details(races[next_operation])
+                                Interface.race_details(races[next_operation])
                             except IndexError:
                                 print("No such race")
                                 continue
@@ -417,24 +317,23 @@ if __name__ == "__main__":
                         else:
                             print("Unknown command")
                 elif next_operation == "s":
-                    for race in races:
-                        if race.is_cancelled:
-                            file_name = f"CSV/CANCELLED_{race.date_starts.strftime('%Y-%m-%d')}_" \
-                                        f"{ABR_TOURNAMENTS[race.subtitle]}_" \
-                                        f"{race.place.replace(' ', '_')}.csv"
-                            lines = ["##### CANCELLED #####"]
-                        else:
-                            file_name = f"CSV/{race.date_starts.strftime('%Y-%m-%d')}_" \
-                                        f"{ABR_TOURNAMENTS[race.subtitle]}_" \
-                                        f"{race.place.replace(' ', '_')}.csv"
-                            lines = generate_lines(race)
-                        save_to_file(file_name, lines)
-                elif next_operation == "x":
-                    next_operation = input("Are you sure? Data not saved to file will be gone. y/n: ")
-                    if next_operation == 'y':
-                        break
+                    if files:
+                        while files:
+                            file = files.pop()
+                            file.generate_lines()
+                            file.save()
                     else:
-                        continue
+                        print("Nothing to save!")
+                        break
+                elif next_operation == "x":
+                    if races and files:
+                        next_operation = input("Are you sure? Data not saved to file will be gone. y/n: ")
+                        if next_operation == 'y':
+                            break
+                        else:
+                            continue
+                    else:
+                        break
                 else:
                     print("Unknown command")
                     continue
