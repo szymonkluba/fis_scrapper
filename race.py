@@ -23,3 +23,10 @@ class Race:
 
     def add_disqualified(self, disqualified):
         self.disqualified.append(disqualified)
+
+
+class TeamRace(Race):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.teams = []
