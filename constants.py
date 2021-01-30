@@ -37,3 +37,37 @@ LINE_SCHEME = {
     'Tot. Points': '',
     'Diff. Points': ''
 }
+
+COUNTRIES = [
+    'AUSTRIA',
+    'BELARUS',
+    'BULGARIA',
+    'CHINA',
+    'CROATIA',
+    'CZECH REPUBLIC',
+    'ESTONIA',
+    'FINLAND',
+    'FRANCE',
+    'SPAIN',
+    'THE NETHERLANDS',
+    'ICELAND',
+    'JAPAN',
+    'CANADA',
+    'KAZAKHSTAN',
+    'KOREA',
+    'LATVIA',
+    'GERMANY',
+    'NORWAY',
+    'POLAND',
+    'RUSSIA',
+    'ROMANIA',
+    'SLOVAKIA',
+    'SLOVENIA',
+    'UNITED STATES OF AMERICA',
+    'SWITZERLAND',
+    'SWEDEN',
+    'TURKEY',
+    'UKRAINE',
+    'HUNGARY',
+    'ITALY'
+]
